@@ -64,5 +64,5 @@ console.log(result.toolCalls);
 ## Next steps
 
 - [API reference](./api-reference.md) — constructor options, chat, audio, tools.
-- [Vanilla example](./examples/vanilla.html) — plain HTML/JS demo.
-- [React example](./examples/react-example.tsx) / [Svelte example](./examples/svelte-example.svelte) — framework adapters.
+- [Vanilla example](./examples/vanilla.md) — plain HTML/JS demo.
+- [React example](./examples/react.md) / [Svelte example](./examples/svelte.md) — framework adapters.

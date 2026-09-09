@@ -23,13 +23,13 @@ export default defineConfig({
         text: "Examples",
         items: [
           { text: "Vanilla", link: "/examples/vanilla" },
-          { text: "React", link: "/examples/react-example" },
-          { text: "Svelte", link: "/examples/svelte-example" },
+          { text: "React", link: "/examples/react" },
+          { text: "Svelte", link: "/examples/svelte" },
         ],
       },
     ],
     socialLinks: [
-      { icon: "github", link: "https://github.com/your-org/browser-ai-engine" },
+      { icon: "github", link: "https://github.com/DezBenedek/browser-ai-engine" },
     ],
   },
 });
