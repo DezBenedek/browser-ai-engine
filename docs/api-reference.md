@@ -121,10 +121,11 @@ const results = await ToolModule.dispatch(calls, { getWeather: async (a) => ({})
 ## Models
 
 ```ts
-import { MODEL_REGISTRY, listModels, DEFAULT_MODEL } from "browser-ai-engine";
+import { MODEL_REGISTRY, MODEL_CATEGORIES, listModels, listModelsByCategory, DEFAULT_MODEL } from "browser-ai-engine";
 
-listModels();        // all
-listModels("chat");  // chat | stt | tts | embedding
+listModels();        // all (37 models)
+listModels("translation");  // chat | stt | tts | embedding | rerank | text-classification | ...
+listModelsByCategory("Vision"); // Chat | Embedding & retrieval | Classification | ...
 ```
 
 ## Cache
@@ -194,4 +195,68 @@ import { createBrowserAIStore, browserAIStore } from "browser-ai-engine/svelte";
 const ai = createBrowserAIStore({ modelId: "qwen-2.5-0.5b" });
 // ai.loadModel(id), ai.chat(messages, opts) => Promise<string>, ai.unload(), ai.dispose()
 // stores: ai.ready, ai.loading, ai.progress, ai.error, ai.currentModel
+```
+
+Vue (`browser-ai-engine/vue`):
+
+```ts
+import { useBrowserAI } from "browser-ai-engine/vue";
+
+const { ready, loading, progress, error, currentModel, loadModel, chat, unload } =
+  useBrowserAI({ autoLoad: false });
+// same chat() signature; state is Vue refs
+```
+
+Solid (`browser-ai-engine/solid`):
+
+```ts
+import { useBrowserAI } from "browser-ai-engine/solid";
+
+const { ready, loading, loadModel, chat } = useBrowserAI();
+// same chat() signature; state is Solid accessors
+```
+
+Angular (`browser-ai-engine/angular`):
+
+```ts
+import { BrowserAIService } from "browser-ai-engine/angular";
+
+constructor(private ai: BrowserAIService) {}
+// this.ai.ready() signal, await this.ai.loadModel(id),
+// await this.ai.chat(messages, opts), await this.ai.destroy()
+```
+
+Vanilla store (`browser-ai-engine/store`, no framework):
+
+```ts
+import { createBrowserAI } from "browser-ai-engine/store";
+
+const ai = createBrowserAI();
+const unsub = ai.subscribe((s) => console.log(s.loading));
+await ai.loadModel("qwen-2.5-0.5b");
+// useSyncExternalStore-compatible: ai.subscribe + ai.getSnapshot
+```
+
+Web component (`browser-ai-engine/webcomponent`, plain HTML):
+
+```html
+<script type="module">
+  import { defineBrowserAIElements } from "browser-ai-engine/webcomponent";
+  defineBrowserAIElements();
+</script>
+<browser-ai-chat model="qwen-2.5-0.5b" theme="dark"></browser-ai-chat>
+```
+
+## Dependency loading (browser without bundler)
+
+`@mlc-ai/web-llm` and `@xenova/transformers` load lazily via bare imports
+(bundlers resolve them). In a plain page add an importmap; otherwise the
+library falls back to pinned esm.sh builds (`WEBLLM_CDN_URL`,
+`TRANSFORMERS_CDN_URL` — re-exported for inspection).
+
+```ts
+import { listModelsByCategory } from "browser-ai-engine";
+
+await ai.listModelsDetailed("chat"); // ModelInfo[] + cached flag per model
+await ai.isModelCached(getModel("whisper-tiny")!); // checks all browser caches
 ```

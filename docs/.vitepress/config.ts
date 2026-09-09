@@ -4,11 +4,15 @@ export default defineConfig({
   title: "browser-ai-engine",
   description: "Offline-first LLM + speech engine for the browser.",
   base: "/browser-ai-engine/",
+  // /playground/ is a static app copied into public/ by CI (see deploy-docs.yml),
+  // not a markdown route — exempt it from the dead-link checker.
+  ignoreDeadLinks: [/\/playground/],
   themeConfig: {
     nav: [
       { text: "Guide", link: "/guide" },
       { text: "API", link: "/api-reference" },
       { text: "Examples", link: "/examples/vanilla" },
+      { text: "Playground", link: "/playground/" },
     ],
     sidebar: [
       {
@@ -17,6 +21,7 @@ export default defineConfig({
           { text: "Introduction", link: "/" },
           { text: "Guide", link: "/guide" },
           { text: "API reference", link: "/api-reference" },
+          { text: "Model catalog", link: "/models" },
         ],
       },
       {

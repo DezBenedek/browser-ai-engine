@@ -24,6 +24,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run build
+      # Ship the interactive playground with the docs site (/playground/).
+      # It auto-loads the published esm.sh build when ../dist is absent.
+      - run: mkdir -p docs/public/playground && cp playground/index.html playground/styles.css playground/app.js docs/public/playground/
       - run: npm run docs:build
       - uses: actions/upload-pages-artifact@v3
         with:

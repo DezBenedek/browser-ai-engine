@@ -14,7 +14,7 @@
  * - le:    `onmessage({ id, type: 'chunk'|'result'|'error', data/error })`
  */
 
-import type { WorkerRequest, WorkerResponse } from './types.js';
+import type { ChatResult, LoadProgress, WorkerRequest, WorkerResponse } from './types.js';
 
 /** `call` kérés azonosító-típusai (a worker felé). */
 export type WorkerCallType = WorkerRequest['type'];
@@ -194,4 +194,93 @@ export class WorkerManager {
       e.reject(err);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Worker → főszál alak-normalizálás
+// ---------------------------------------------------------------------------
+// A worker többféle chunk-alakot küldhet (régi/új protokoll); ezek a tiszta
+// függvények egységesítik őket, hogy az Engine-nek ne kelljen találgatnia.
+// Mind DOM-függőség nélkül tesztelhető.
+
+/** Worker progress chunk: elfogadott alakok. */
+export type WorkerProgressChunk =
+  | Partial<LoadProgress>
+  | { kind: 'progress'; progress: number; text?: string }
+  | { progress: number; text?: string };
+
+/**
+ * Worker progress chunk → LoadProgress. `sizeMB` a registry-ből jön a
+ * bájt-becsléshez. Ismeretlen alakra `null` (eldobandó).
+ */
+export function normalizeWorkerProgress(
+  chunk: unknown,
+  modelId: string,
+  sizeMB: number,
+): LoadProgress | null {
+  if (!chunk || typeof chunk !== 'object') return null;
+  const c = chunk as Record<string, unknown>;
+  if (typeof c['percent'] === 'number') {
+    const percent = c['percent'];
+    const p = c as Partial<LoadProgress>;
+    return {
+      modelId,
+      loadedBytes: typeof p.loadedBytes === 'number' ? p.loadedBytes : 0,
+      totalBytes: typeof p.totalBytes === 'number' ? p.totalBytes : 0,
+      percent,
+      mbPerSec: p.mbPerSec ?? 0,
+      etaSec: p.etaSec ?? 0,
+      status: p.status ?? 'downloading',
+    };
+  }
+  if (typeof c['progress'] === 'number') {
+    const frac = Math.min(1, Math.max(0, c['progress'] as number));
+    const total = Math.round(sizeMB * 1024 * 1024);
+    return {
+      modelId,
+      loadedBytes: Math.round(total * frac),
+      totalBytes: total,
+      percent: Math.round(frac * 100),
+      mbPerSec: 0,
+      etaSec: 0,
+      status: frac >= 1 ? 'loading' : 'downloading',
+    };
+  }
+  return null;
+}
+
+/** Worker token chunk → szöveg-delta. Ismeretlen alakra üres sztring. */
+export function normalizeWorkerToken(chunk: unknown): string {
+  if (typeof chunk === 'string') return chunk;
+  if (chunk && typeof chunk === 'object') {
+    const c = chunk as Record<string, unknown>;
+    if (typeof c['delta'] === 'string') return c['delta'] as string;
+    if (typeof c['text'] === 'string') return c['text'] as string;
+  }
+  return '';
+}
+
+/**
+ * Worker chat-végeredmény → ChatResult. Elfogadja a worker `DoneData`
+ * (`{ kind: 'done', text, modelId }`) és a teljes ChatResult alakot is.
+ */
+export function normalizeWorkerChatResult(data: unknown, modelId: string): ChatResult | null {
+  if (!data || typeof data !== 'object') {
+    return typeof data === 'string' ? { text: data, toolCalls: [], modelId } : null;
+  }
+  const d = data as Record<string, unknown>;
+  if (typeof d['text'] !== 'string') return null;
+  const toolCalls = Array.isArray(d['toolCalls'])
+    ? (d['toolCalls'] as ChatResult['toolCalls'])
+    : [];
+  const usage =
+    d['usage'] && typeof d['usage'] === 'object'
+      ? (d['usage'] as ChatResult['usage'])
+      : undefined;
+  return {
+    text: d['text'] as string,
+    toolCalls,
+    ...(usage !== undefined ? { usage } : {}),
+    modelId: typeof d['modelId'] === 'string' ? (d['modelId'] as string) : modelId,
+  };
 }

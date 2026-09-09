@@ -66,8 +66,35 @@ export interface ChatResult {
 /** Modellszolgáltató: WebLLM (WebGPU) vagy transformers.js (WASM/CPU). */
 export type ModelProvider = 'webllm' | 'transformers';
 
-/** Modell feladat: chat / beszédfelismerés / beszédszintézis / beágyazás. */
-export type ModelTask = 'chat' | 'stt' | 'tts' | 'embedding';
+/** Modell feladat: chat, hang, kép, szöveges pipeline-ok. */
+export type ModelTask =
+  | 'chat'
+  | 'stt'
+  | 'tts'
+  | 'embedding'
+  | 'rerank'
+  | 'text-classification'
+  | 'zero-shot'
+  | 'qa'
+  | 'summarization'
+  | 'text2text'
+  | 'translation'
+  | 'image-classification'
+  | 'object-detection'
+  | 'segmentation'
+  | 'ocr';
+
+/** Kategória a katalógus csoportosításához (docs/models oldal). */
+export type ModelCategory =
+  | 'Chat'
+  | 'Embedding & retrieval'
+  | 'Classification'
+  | 'Comprehension'
+  | 'Generation'
+  | 'Translation'
+  | 'Vision'
+  | 'Document'
+  | 'Speech';
 
 /** Egy regisztrált modell metaadatai. */
 export interface ModelInfo {
@@ -82,14 +109,26 @@ export interface ModelInfo {
   sizeMB: number;
   /** Paraméterszám kijelzéshez (pl. `0.5B`, `39M`). */
   params: string;
-  /** Kontextusablak tokenben. */
+  /** Kontextusablak tokenben. Nem szöveges modellnél 0. */
   contextWindow: number;
   /** Kvantálás (pl. `q4f16_1`). */
   quantization?: string;
   task: ModelTask;
+  /** Kategória a katalógus csoportosításához. */
+  category: ModelCategory;
   /** Becsült VRAM-igény megabájtban (futási overheadtel). */
   vramMB: number;
   description: string;
+  /**
+   * Szabványos kiértékelő adathalmazok, amiken a modellt mérik
+   * (pl. `MMLU`, `SQuAD v1.1`, `COCO`, `LibriSpeech`). Rangsoroláshoz.
+   */
+  evals: string[];
+  /**
+   * Kiemelt mért eredmény, ha közismert (pl. `76.1% top-1`).
+   * Tájékoztató adat a modellkártya/paper alapján, nem saját mérés.
+   */
+  score?: string;
 }
 
 /** Alapértelmezett generálási paraméterek. */

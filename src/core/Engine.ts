@@ -25,12 +25,20 @@ import type {
   ModelInfo,
   ToolDefinition,
 } from './types.js';
-import { getModel, listModels as registryListModels } from './registry.js';
+import { getModel, listModels as registryListModels, listModelsByCategory } from './registry.js';
 import { CacheManager } from './CacheManager.js';
-import { WorkerManager, WORKER_DISABLED } from './WorkerManager.js';
+import {
+  WorkerManager,
+  WORKER_DISABLED,
+  normalizeWorkerChatResult,
+  normalizeWorkerProgress,
+  normalizeWorkerToken,
+} from './WorkerManager.js';
+import { importWebLLM } from './loader.js';
 import { AudioModule } from '../modules/AudioModule.js';
 import type { TranscribeOptions, SynthesizeOptions } from '../modules/AudioModule.js';
-import type { ModelTask } from './types.js';
+import { PipelineModule } from '../modules/PipelineModule.js';
+import type { ModelCategory, ModelTask } from './types.js';
 
 // WebLLM streaming chunk minimális alakja (struktúrális típus, nem import).
 interface StreamToolCallDelta {
@@ -59,6 +67,11 @@ interface MlcEngineLike {
 
 type EventListener = (payload?: unknown) => void;
 
+/** Modell metaadat gyorsítótár-státusszal (lásd `listModelsDetailed`). */
+export interface ModelWithCache extends ModelInfo {
+  cached: boolean;
+}
+
 const DEFAULT_CACHE_SCOPE = 'browser-ai-engine-v1';
 /** tsup worker bundle neve a `dist/` mellett (lásd tsup.config.ts). */
 const WORKER_DIST_FILE = 'inference.worker.global.js';
@@ -76,7 +89,7 @@ export class BrowserAIEngine {
   private readonly listeners = new Map<EngineEventName, Set<EventListener>>();
   private widget: { destroy?: () => void } | null = null;
   private toolModulePromise: Promise<unknown> | null = null;
-  private audioModulePromise: Promise<unknown> | null = null;
+  private pipes: PipelineModule | null = null;
 
   constructor(options: EngineOptions = {}) {
     this.options = { autoEvict: true, ...options };
@@ -148,9 +161,11 @@ export class BrowserAIEngine {
    * - `autoEvict` mellett az előző modell kipakolásra kerül.
    * - WebLLM (chat) modelleknél WebGPU ellenőrzés + `CreateMLCEngine`
    *   `appConfig`-gel; `initProgressCallback` az `onProgress`-be és
-   *   `progress` eseményre fordítódik.
-   * - transformers (stt/tts/embedding) modelleknél csak cache-előtöltés
-   *   történik; a súlyokat az AudioModule tölti használatkor.
+   *   `progress` eseményre fordítódik. A WebLLM a saját gyorsítótárát
+   *   kezeli; külön előtöltés nem kell.
+   * - transformers modelleknél (stt/tts/embedding/vision/…) a pipeline
+   *   ténylegesen létrejön (`warmup`): a súlyok ilyenkor töltődnek le a
+   *   transformers.js saját tárába, fájlonkénti folyamatjelzéssel.
    */
   async loadModel(modelId: string, onProgress?: InitProgressCallback): Promise<void> {
     const info = getModel(modelId);
@@ -187,7 +202,7 @@ export class BrowserAIEngine {
     }
 
     if (info.provider === 'transformers' || info.task !== 'chat') {
-      await this.prefetchTransformerModel(info, onProgress);
+      await this.warmupTransformerModel(info, onProgress);
       this.currentModelId = modelId;
       this.useWorker = false;
       this.emitReady(modelId, onProgress);
@@ -203,17 +218,17 @@ export class BrowserAIEngine {
     };
     try {
       report(this.mkProgress(info, 0, 'loading'));
-      const { CreateMLCEngine } = (await import('@mlc-ai/web-llm')) as unknown as {
-        CreateMLCEngine: (
-          model: string,
-          config?: Record<string, unknown>,
-        ) => Promise<MlcEngineLike>;
-      };
+      // Bare import bundlerben/Node-ban, sima böngészőben CDN-visszaeséssel.
+      const { CreateMLCEngine } = await importWebLLM();
+      const createEngine = CreateMLCEngine as (
+        model: string,
+        config?: Record<string, unknown>,
+      ) => Promise<MlcEngineLike>;
       const appConfig = {
         model_list: [{ model: info.modelUrl ?? info.id, model_id: info.id }],
       };
       const startedAt = Date.now();
-      this.mlcEngine = await CreateMLCEngine(info.id, {
+      this.mlcEngine = await createEngine(info.id, {
         appConfig,
         initProgressCallback: (r: { progress?: number; text?: string }) => {
           const frac = typeof r?.progress === 'number' ? r.progress : 0;
@@ -268,12 +283,20 @@ export class BrowserAIEngine {
     }
 
     if (this.useWorker && this.workerMgr.isActive()) {
-      return this.workerMgr.call<ChatResult>(
+      const raw = await this.workerMgr.call<unknown>(
         'chat',
         { modelId, ...this.serializeChatOptions(options) },
-        (chunk) => options.onChunk?.(typeof chunk === 'string' ? chunk : String(chunk ?? '')),
+        (chunk) => {
+          const delta = normalizeWorkerToken(chunk);
+          if (delta) options.onChunk?.(delta);
+        },
         options.signal,
       );
+      const normalized = normalizeWorkerChatResult(raw, modelId);
+      if (!normalized) {
+        throw new Error('Worker chat: értelmezhetetlen válasz a workertől.');
+      }
+      return normalized;
     }
 
     if (!this.mlcEngine) {
@@ -427,6 +450,22 @@ export class BrowserAIEngine {
     return registryListModels(task);
   }
 
+  /** Regisztrált modellek kategóriára szűrve. */
+  listModelsByCategory(category: ModelCategory): ModelInfo[] {
+    return listModelsByCategory(category);
+  }
+
+  /**
+   * Modellista gyorsítótár-státusszal: minden bejegyzéshez `cached` flag.
+   * A WebLLM és a transformers.js saját tárait is figyeli, nem csak a
+   * saját scope-ot — ezért mutatja a ténylegesen letöltött modelleket.
+   */
+  async listModelsDetailed(task?: ModelTask): Promise<ModelWithCache[]> {
+    const models = this.listModels(task);
+    const flags = await Promise.all(models.map((m) => this.isModelCached(m)));
+    return models.map((m, i) => ({ ...m, cached: flags[i] ?? false }));
+  }
+
   /** Gyorsítótár ürítése (egy modell vagy a teljes scope). */
   async clearCache(modelId?: string): Promise<void> {
     await this.cache.clear(modelId);
@@ -527,33 +566,95 @@ export class BrowserAIEngine {
     this.emit('memory', this.getMemory());
   }
 
-  /** transformers súlyok best-effort előtöltése (egyszerű URL-ről, ha van). */
-  private async prefetchTransformerModel(info: ModelInfo, onProgress?: InitProgressCallback): Promise<void> {
-    onProgress?.(this.mkProgress(info, 0, 'downloading'));
-    this.emit('progress', this.mkProgress(info, 0, 'downloading'));
-    if (this.options.cache?.enabled === false) return;
-    const url = info.modelUrl;
-    // A teljes súlykészlet az AudioModule-ben töltődik; itt csak az
-    // ismert belépési pont (pl. config) melegítése, ha megadott.
-    if (url) {
+  /** Egy modell súlyai megtalálhatók-e valamelyik böngészős tárban. */
+  async isModelCached(info: ModelInfo): Promise<boolean> {
+    try {
+      if (await this.cache.has(info.id)) return true;
+    } catch {
+      // Saját scope olvashatatlan: nézzük a többi tárat is.
+    }
+    if (typeof caches === 'undefined') return false;
+    const needles: string[] = [];
+    if (info.hfRepo) needles.push(info.hfRepo);
+    if (info.modelUrl) {
       try {
-        await this.cache.prefetchWithProgress(url, (p) => {
-          const lp: LoadProgress = {
-            modelId: info.id,
-            loadedBytes: p.loadedBytes,
-            totalBytes: p.totalBytes,
-            percent: Math.round(p.percent),
-            mbPerSec: 0,
-            etaSec: 0,
-            status: 'downloading',
-          };
-          onProgress?.(lp);
-          this.emit('progress', lp);
-        });
+        // Pl. https://huggingface.co/mlc-ai/Qwen2.5-...-MLC/resolve/main/
+        // → 'mlc-ai/Qwen2.5-...-MLC' részletre keresünk.
+        const parts = new URL(info.modelUrl).pathname.split('/').filter(Boolean);
+        if (parts.length >= 2) needles.push(`${parts[0]}/${parts[1]}`);
       } catch {
-        // Előtöltés sikertelensége nem blokkol: lazy töltés használatkor.
+        // Érvénytelen URL: kihagyjuk.
       }
     }
+    if (needles.length === 0) return false;
+    try {
+      const names = await caches.keys();
+      for (const name of names) {
+        const cache = await caches.open(name);
+        const keys = await cache.keys();
+        if (keys.some((r) => needles.some((n) => r.url.includes(n as string)))) return true;
+      }
+    } catch {
+      // Tár-olvasási hiba: nem blokkol, nincs cache-találat.
+    }
+    return false;
+  }
+
+  /**
+   * transformers pipeline tényleges létrehozása = valódi letöltés.
+   * A transformers.js `progress_callback` fájlonkénti eseményeit összesítve
+   * fordítja LoadProgress-re (bájtarány, sebesség, hátralévő idő).
+   */
+  private async warmupTransformerModel(info: ModelInfo, onProgress?: InitProgressCallback): Promise<void> {
+    const report = (p: LoadProgress): void => {
+      onProgress?.(p);
+      this.emit('progress', p);
+    };
+    report(this.mkProgress(info, 0, 'downloading'));
+    if (!this.pipes) {
+      this.pipes = new PipelineModule({
+        useCache: this.options.cache?.enabled !== false,
+      });
+    }
+    const startedAt = Date.now();
+    const files = new Map<string, { loaded: number; total: number }>();
+    await this.pipes.warmup(info.id, (ev: unknown) => {
+      const e = ev as { status?: string; file?: string; loaded?: number; total?: number } | null;
+      if (!e || typeof e !== 'object') return;
+      if (e.status === 'ready' || e.status === 'done') {
+        if (typeof e.file === 'string') {
+          const prev = files.get(e.file) ?? { loaded: 0, total: 0 };
+          files.set(e.file, { loaded: Math.max(prev.loaded, prev.total), total: prev.total });
+        }
+      } else if (typeof e.file === 'string') {
+        files.set(e.file, {
+          loaded: typeof e.loaded === 'number' ? e.loaded : 0,
+          total: typeof e.total === 'number' ? e.total : 0,
+        });
+      } else {
+        return;
+      }
+      let loaded = 0;
+      let total = 0;
+      for (const f of files.values()) {
+        loaded += f.loaded;
+        total += f.total;
+      }
+      const expected = info.sizeMB * 1024 * 1024;
+      const denom = total > 0 ? total : expected;
+      const percent = denom > 0 ? Math.min(99, Math.round((loaded / denom) * 100)) : 0;
+      const elapsedSec = Math.max(0.1, (Date.now() - startedAt) / 1000);
+      const mbPerSec = loaded / 1024 / 1024 / elapsedSec;
+      report({
+        modelId: info.id,
+        loadedBytes: loaded,
+        totalBytes: total > 0 ? total : expected,
+        percent,
+        mbPerSec: Math.round(mbPerSec * 10) / 10,
+        etaSec: mbPerSec > 0 ? Math.round((expected - loaded) / 1024 / 1024 / mbPerSec) : 0,
+        status: 'downloading',
+      });
+    });
   }
 
   private forwardWorkerProgress(
@@ -561,17 +662,9 @@ export class BrowserAIEngine {
     chunk: unknown,
     onProgress?: InitProgressCallback,
   ): void {
-    const p = chunk as Partial<LoadProgress> | null;
-    if (!p || typeof p.percent !== 'number') return;
-    const full: LoadProgress = {
-      modelId,
-      loadedBytes: p.loadedBytes ?? 0,
-      totalBytes: p.totalBytes ?? 0,
-      percent: p.percent,
-      mbPerSec: p.mbPerSec ?? 0,
-      etaSec: p.etaSec ?? 0,
-      status: p.status ?? 'downloading',
-    };
+    const info = getModel(modelId);
+    const full = normalizeWorkerProgress(chunk, modelId, info?.sizeMB ?? 0);
+    if (!full) return;
     onProgress?.(full);
     this.emit('progress', full);
   }
@@ -663,14 +756,6 @@ export class BrowserAIEngine {
     return this.toolModulePromise;
   }
 
-  /** Audio modul lazy betöltése (STT/TTS használatkor). */
-  private loadAudioModule(): Promise<unknown> {
-    if (!this.audioModulePromise) {
-      this.audioModulePromise = import('../modules/AudioModule.js').catch(() => null);
-    }
-    return this.audioModulePromise;
-  }
-
   /** Widget csak `ui.enabled` + böngésző esetén, hibája nem blokkol. */
   private async ensureWidget(): Promise<void> {
     if (this.options.ui?.enabled !== true) return;
@@ -690,8 +775,11 @@ export class BrowserAIEngine {
         onLoadModel: (id: unknown) => void this.loadModel(String(id)).catch(() => undefined),
         onClearCache: (id: unknown) =>
           void this.clearCache(typeof id === 'string' ? id : undefined).catch(() => undefined),
-        getModels: () =>
-          this.listModels().map((m) => ({ id: m.id, label: m.label, sizeMb: m.sizeMB })),
+        getModels: async () => {
+          const detailed = await this.listModelsDetailed().catch(() => null);
+          const rows = detailed ?? this.listModels().map((m) => ({ ...m, cached: false }));
+          return rows.map((m) => ({ id: m.id, label: m.label, sizeMb: m.sizeMB, cached: m.cached }));
+        },
         getMemory: async () => {
           const mem = this.getMemory();
           const usage = await this.cache.usage().catch(() => ({ entries: 0, approxBytes: 0 }));

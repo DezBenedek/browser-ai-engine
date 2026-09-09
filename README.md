@@ -91,25 +91,33 @@ const ai = new BrowserAIEngine({ ui: { enabled: false } });
 
 ## Models
 
+37 built-in models across 9 categories — chat (WebGPU), embedding, rerank,
+sentiment, zero-shot classification, Q&A, summarization, translation (including
+en↔hu), image classification, object detection, segmentation, OCR, STT and TTS.
+Most are 15–300 MB and run on CPU via Transformers.js.
+
 | ID | Task | Approx. download | Notes |
 |---|---|---|---|
-| `qwen-2.5-0.5b` | chat | ~400 MB | Default. Smallest, good for testing. |
-| `qwen-2.5-1.5b` | chat | ~1100 MB | Balanced quality/size. |
-| `qwen-2.5-3b` | chat | ~2200 MB | Stronger reasoning, needs 4 GB+ VRAM. |
-| `llama-3.2-1b` | chat | ~900 MB | Short instruction following. |
-| `llama-3.2-3b` | chat | ~2400 MB | Summarization, RAG. |
-| `phi-3.5-mini` | chat | ~2700 MB | Code and reasoning. |
-| `gemma-2-2b` | chat | ~1800 MB | Strict instruction following. |
-| `deepseek-r1-distill-qwen-1.5b` | chat | ~1200 MB | Step-by-step reasoning traces. |
-| `whisper-tiny` | stt | ~150 MB | Realtime STT on CPU. |
-| `whisper-base` | stt | ~250 MB | More accurate STT. |
-| `speecht5` | tts | ~320 MB | CPU speech synthesis. |
-| `snowflake-arctic-embed-xs` | embedding | ~180 MB | RAG / semantic search. |
+| `smollm2-135m` | chat | ~150 MB | Smallest chat model. Good for testing. |
+| `smollm2-360m` | chat | ~300 MB | Better instruction following, still tiny. |
+| `qwen-2.5-0.5b` | chat | ~400 MB | Default. Balanced small chat. |
+| `embed-minilm-l6` | embedding | ~80 MB | Default embedder for RAG. |
+| `rerank-minilm-l6` | rerank | ~90 MB | Re-ranks retrieval hits (~39 MRR@10). |
+| `sentiment-distilbert` | classification | ~260 MB | English sentiment (~91% SST-2). |
+| `zeroshot-mobilebert-mnli` | zero-shot | ~100 MB | Any labels, no training. |
+| `translate-en-hu` / `translate-hu-en` | translation | ~300 MB | Offline EN↔HU. |
+| `detect-yolos-tiny` | detection | ~30 MB | Realtime object detection. |
+| `segment-segformer-b0` | segmentation | ~15 MB | Smallest vision model (37.4 mIoU). |
+| `ocr-trocr-small` | ocr | ~250 MB | Printed text from images. |
+| `whisper-tiny` | stt | ~150 MB | Multilingual STT on CPU. |
+
+Full catalog with benchmarks: [docs/models.md](./docs/models.md).
 
 ```ts
-import { listModels, DEFAULT_MODEL } from "browser-ai-engine";
+import { listModels, listModelsByCategory, DEFAULT_MODEL } from "browser-ai-engine";
 
 listModels("chat").map((m) => m.id);
+listModelsByCategory("Vision").map((m) => `${m.id} — ${m.score ?? m.evals.join(", ")}`);
 ```
 
 First `loadModel()` downloads weights from HuggingFace CDN and stores them in Cache Storage. Later loads work offline. STT/TTS weights load lazily on first `transcribe()` / `synthesize()`.
@@ -158,6 +166,60 @@ export function Chat() {
 <p>{reply}</p>
 ```
 
+## More adapters
+
+| Import | Framework | API |
+|---|---|---|
+| `browser-ai-engine/react` | React 18+ | `useBrowserAI()` hook |
+| `browser-ai-engine/svelte` | Svelte 4+ | `createBrowserAIStore()` / `browserAIStore` |
+| `browser-ai-engine/vue` | Vue 3+ | `useBrowserAI()` composable (refs) |
+| `browser-ai-engine/solid` | SolidJS 1+ | `useBrowserAI()` (signals) |
+| `browser-ai-engine/angular` | Angular 17+ | `BrowserAIService` (signals, `providedIn: root`) |
+| `browser-ai-engine/store` | any / none | `createBrowserAI()` vanilla store (`subscribe`/`getSnapshot`) |
+| `browser-ai-engine/webcomponent` | any / plain HTML | `<browser-ai-chat model="qwen-2.5-0.5b">` custom element |
+
+```html
+<script type="module">
+  import { defineBrowserAIElements } from "browser-ai-engine/webcomponent";
+  defineBrowserAIElements();
+</script>
+<browser-ai-chat model="smollm2-360m" theme="dark"></browser-ai-chat>
+```
+
+Framework peer deps are all optional — install only the one you use.
+
+## Playground
+
+Interactive test UI for every feature (models + download progress, streaming
+chat with tools, pipelines, vision, audio, cache):
+
+```bash
+npm run build
+npx serve .   # open http://localhost:3000/playground/
+```
+
+Live version (after each release): `https://dezbenedek.github.io/browser-ai-engine/playground/`
+
+## Plain browser (no bundler)
+
+The library lazy-loads `@mlc-ai/web-llm` and `@xenova/transformers` via bare
+imports. Bundlers resolve those automatically; in a plain `<script type="module">`
+page add an importmap (pinned versions matching this package):
+
+```html
+<script type="importmap">
+  {
+    "imports": {
+      "@mlc-ai/web-llm": "https://esm.sh/@mlc-ai/web-llm@0.2.85",
+      "@xenova/transformers": "https://esm.sh/@xenova/transformers@2.17.2"
+    }
+  }
+</script>
+```
+
+Without an importmap the library falls back to the same CDN URLs automatically
+— the importmap just makes it faster and version-explicit.
+
 ## Offline behavior
 
 1. First `loadModel()` / `transcribe()` / `synthesize()` fetches weights over network.
@@ -168,7 +230,7 @@ export function Chat() {
 
 Full reference: [docs/api-reference.md](./docs/api-reference.md).
 
-Entry points: `BrowserAIEngine`, `MODEL_REGISTRY`, `listModels`, `DEFAULT_MODEL`, `CacheManager`, `WorkerManager`, `TextModule`, `ToolModule`, `AudioModule`, `FloatingWidget`, `useBrowserAI`, `createBrowserAIStore` / `browserAIStore`.
+Entry points: `BrowserAIEngine`, `MODEL_REGISTRY`, `listModels`, `listModelsByCategory`, `DEFAULT_MODEL`, `CacheManager`, `WorkerManager`, `TextModule`, `ToolModule`, `AudioModule`, `PipelineModule`, `FloatingWidget`, `useBrowserAI`, `createBrowserAIStore` / `browserAIStore`, `createBrowserAI` (vanilla store), `BrowserAIService` (Angular), `<browser-ai-chat>` (web component).
 
 ## Development
 

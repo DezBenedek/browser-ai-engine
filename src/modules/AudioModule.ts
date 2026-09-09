@@ -9,12 +9,14 @@
  */
 
 import type { CacheOptions } from '../core/types.js';
+import { importTransformers } from '../core/loader.js';
 
 /** Elérhető Whisper-méretek; a kisebbtől a pontosabb felé. */
-export type WhisperModelId = 'whisper-tiny' | 'whisper-base';
+export type WhisperModelId = 'whisper-tiny' | 'whisper-tiny-en' | 'whisper-base';
 
 const WHISPER_MODEL_IDS: Record<WhisperModelId, string> = {
   'whisper-tiny': 'Xenova/whisper-tiny',
+  'whisper-tiny-en': 'Xenova/whisper-tiny.en',
   'whisper-base': 'Xenova/whisper-base',
 };
 
@@ -121,15 +123,13 @@ export class AudioModule {
 
   /** A transformers csomag lusta betöltése, érthető hibával ha nincs telepítve. */
   private async loadTransformers(): Promise<TransformersModule> {
+    const mod = await importTransformers();
     try {
-      // Statikus specifikáló a bundler miatt; opcionális függőség.
-      return (await import('@xenova/transformers')) as unknown as TransformersModule;
-    } catch (err) {
-      throw new Error(
-        'AudioModule: a @xenova/transformers csomag nem betölthető. ' +
-          `Telepítsd: npm i @xenova/transformers. Eredeti hiba: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      if (mod.env && this.useCache === false) mod.env.useBrowserCache = false;
+    } catch {
+      // env-flag best-effort: nem blokkol.
     }
+    return mod as unknown as TransformersModule;
   }
 
   /** Pipeline lusta létrehozása feladatra + modellre, egyszer. */

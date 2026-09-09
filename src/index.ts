@@ -12,13 +12,28 @@
 // Ha egy exportált modul még nem létezik, a hiba forrása a fenti leképezés.
 
 export { BrowserAIEngine } from "./core/Engine.js";
+export type { ModelWithCache } from "./core/Engine.js";
 export { CacheManager } from "./core/CacheManager.js";
-export { WorkerManager } from "./core/WorkerManager.js";
-export { MODEL_REGISTRY, listModels, DEFAULT_MODEL } from "./core/registry.js";
+export { WorkerManager, WORKER_DISABLED } from "./core/WorkerManager.js";
+export {
+  normalizeWorkerProgress,
+  normalizeWorkerToken,
+  normalizeWorkerChatResult,
+} from "./core/WorkerManager.js";
+export {
+  importWebLLM,
+  importTransformers,
+  WEBLLM_VERSION,
+  TRANSFORMERS_VERSION,
+  WEBLLM_CDN_URL,
+  TRANSFORMERS_CDN_URL,
+} from "./core/loader.js";
+export { MODEL_REGISTRY, MODEL_CATEGORIES, listModels, listModelsByCategory, DEFAULT_MODEL } from "./core/registry.js";
 
 export { TextModule } from "./modules/TextModule.js";
 export { ToolModule } from "./modules/ToolModule.js";
 export { AudioModule } from "./modules/AudioModule.js";
+export { PipelineModule } from "./modules/PipelineModule.js";
 
 export { FloatingWidget, DEFAULT_CSS, WIDGET_CSS } from "./ui/Widget.js";
 export type {

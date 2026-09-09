@@ -24,6 +24,30 @@
       "import": "./dist/adapters/svelte.js",
       "require": "./dist/adapters/svelte.cjs"
     },
+    "./vue": {
+      "types": "./dist/adapters/vue.d.ts",
+      "import": "./dist/adapters/vue.js",
+      "require": "./dist/adapters/vue.cjs"
+    },
+    "./solid": {
+      "types": "./dist/adapters/solid.d.ts",
+      "import": "./dist/adapters/solid.js",
+      "require": "./dist/adapters/solid.cjs"
+    },
+    "./angular": {
+      "types": "./dist/adapters/angular.d.ts",
+      "import": "./dist/adapters/angular.js",
+      "require": "./dist/adapters/angular.cjs"
+    },
+    "./store": {
+      "types": "./dist/adapters/store.d.ts",
+      "import": "./dist/adapters/store.js",
+      "require": "./dist/adapters/store.cjs"
+    },
+    "./webcomponent": {
+      "types": "./dist/adapters/webcomponent.d.ts",
+      "import": "./dist/adapters/webcomponent.js"
+    },
     "./widget.css": "./dist/widget.css",
     "./package.json": "./package.json"
   },
@@ -48,22 +72,38 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@angular/core": "^18.2.14",
     "@types/react": "^18.3.3",
+    "rxjs": "^7.8.2",
+    "solid-js": "^1.9.15",
     "svelte": "^4.2.18",
     "tsup": "^8.1.0",
     "typescript": "^5.5.4",
     "vitepress": "^1.3.4",
-    "vitest": "^2.1.3"
+    "vitest": "^2.1.3",
+    "vue": "^3.5.42"
   },
   "peerDependencies": {
     "react": ">=18",
-    "svelte": ">=4"
+    "svelte": ">=4",
+    "vue": ">=3",
+    "solid-js": ">=1",
+    "@angular/core": ">=17"
   },
   "peerDependenciesMeta": {
     "react": {
       "optional": true
     },
     "svelte": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    },
+    "@angular/core": {
       "optional": true
     }
   },
