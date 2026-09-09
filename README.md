@@ -182,3 +182,5 @@ npm run build
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+
+By Benedek Peter Dezso
