@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>browser-ai-engine — vanilla demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+      #log { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; min-height: 160px; white-space: pre-wrap; }
+      .row { display: flex; gap: 0.5rem; margin: 1rem 0; }
+      input { flex: 1; padding: 0.5rem; }
+      button { padding: 0.5rem 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>browser-ai-engine — vanilla demo</h1>
+    <p id="status">Status: idle (WebGPU required for chat)</p>
+    <div id="log"></div>
+    <div class="row">
+      <input id="input" placeholder="Ask something…" />
+      <button id="send">Send</button>
+    </div>
+    <div class="row">
+      <button id="load">Load model</button>
+      <button id="mic">Transcribe 5s mic</button>
+      <button id="speak">Speak last reply</button>
+    </div>
+
+    <!--
+      This demo imports from the built bundle, so run `npm run build` first,
+      then serve the repo root (e.g. `npx serve .`) and open this file.
+      For docs preview without a build, swap the import to esm.sh:
+      import { BrowserAIEngine } from "https://esm.sh/browser-ai-engine@0.1.0";
+    -->
+    <script type="module">
+      import { BrowserAIEngine } from "../../dist/index.js";
+
+      const statusEl = document.getElementById("status");
+      const logEl = document.getElementById("log");
+      const inputEl = document.getElementById("input");
+      let lastReply = "";
+
+      const engine = new BrowserAIEngine({ ui: { enabled: false } });
+
+      const setStatus = (s) => (statusEl.textContent = `Status: ${s}`);
+      const append = (who, text) => {
+        logEl.textContent += `\n${who}: ${text}\n`;
+      };
+
+      document.getElementById("load").onclick = async () => {
+        if (!(await BrowserAIEngine.isWebGPUSupported())) {
+          setStatus("error — WebGPU not available in this browser");
+          return;
+        }
+        setStatus("loading…");
+        await engine.loadModel("qwen-2.5-0.5b", (p) =>
+          setStatus(`loading… ${p.percent}% — ${p.mbPerSec} MB/s`),
+        );
+        setStatus("ready");
+      };
+
+      document.getElementById("send").onclick = async () => {
+        const q = inputEl.value.trim();
+        if (!q) return;
+        append("you", q);
+        inputEl.value = "";
+        const result = await engine.chat({
+          messages: [{ role: "user", content: q }],
+          onChunk: (d) => setStatus(`streaming… ${d.slice(0, 40)}`),
+        });
+        lastReply = result.text;
+        append("ai", result.text);
+        setStatus("ready");
+      };
+
+      document.getElementById("mic").onclick = async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const rec = new MediaRecorder(stream);
+        const chunks = [];
+        rec.ondataavailable = (e) => chunks.push(e.data);
+        const stopped = new Promise((r) => (rec.onstop = r));
+        rec.start();
+        setStatus("recording 5s…");
+        setTimeout(() => rec.stop(), 5000);
+        await stopped;
+        stream.getTracks().forEach((t) => t.stop());
+        const text = await engine.transcribe(new Blob(chunks, { type: "audio/webm" }));
+        append("mic", text);
+        setStatus("ready");
+      };
+
+      document.getElementById("speak").onclick = async () => {
+        if (lastReply) await engine.speak(lastReply);
+      };
+    </script>
+  </body>
+</html>
