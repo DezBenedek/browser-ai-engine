@@ -2,7 +2,11 @@
 #
 # release.sh — full release pipeline for browser-ai-engine.
 #
-#   ./release.sh [patch|minor|major|X.Y.Z] [--dry-run]
+#   ./release.sh [patch|minor|major|X.Y.Z] [--dry-run] [--otp=CODE]
+#
+# 2FA: if your npm account requires a one-time password, pass it explicitly
+# (`--otp=123456`) or via the NPM_OTP environment variable. The script never
+# prompts — it fails fast instead.
 #
 # What it does (in order, stops on first failure):
 #   1. Preflight: git clean tree, gh + npm auth, node_modules present.
@@ -22,9 +26,11 @@ cd "$ROOT"
 
 BUMP=""
 DRY_RUN=0
+NPM_OTP="${NPM_OTP:-}"
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
+    --otp=*) NPM_OTP="${arg#--otp=}" ;;
     patch|minor|major) BUMP="$arg" ;;
     [0-9]*.[0-9]*.[0-9]*) BUMP="exact:$arg" ;;
     -h|--help)
@@ -154,7 +160,11 @@ echo "==> git push origin $TAG"
 git push origin "$TAG"
 
 echo "==> npm publish"
-npm publish --access public
+if [ -n "$NPM_OTP" ]; then
+  npm publish --access public --otp="$NPM_OTP"
+else
+  npm publish --access public
+fi
 
 echo "==> gh release create $TAG"
 gh release create "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
