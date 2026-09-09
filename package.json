@@ -1,6 +1,6 @@
 {
   "name": "browser-ai-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Offline-first LLM + STT/TTS engine for the browser. WebGPU inference via WebLLM, audio via Transformers.js, tool calling with Zod validation.",
   "type": "module",
   "license": "MIT",
