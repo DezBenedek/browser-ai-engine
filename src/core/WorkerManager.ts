@@ -221,19 +221,24 @@ export function normalizeWorkerProgress(
   if (!chunk || typeof chunk !== 'object') return null;
   const c = chunk as Record<string, unknown>;
   if (typeof c['percent'] === 'number') {
-    const percent = c['percent'];
+    // Nem véges / tartományon kívüli százalék: eldobás, ill. vágás 0–100-ra.
+    if (!Number.isFinite(c['percent'])) return null;
+    const percent = Math.min(100, Math.max(0, c['percent']));
     const p = c as Partial<LoadProgress>;
+    const loadedBytes = finiteNonNegative(p.loadedBytes) ? (p.loadedBytes as number) : 0;
+    const totalBytes = finiteNonNegative(p.totalBytes) ? (p.totalBytes as number) : 0;
     return {
       modelId,
-      loadedBytes: typeof p.loadedBytes === 'number' ? p.loadedBytes : 0,
-      totalBytes: typeof p.totalBytes === 'number' ? p.totalBytes : 0,
+      loadedBytes,
+      totalBytes,
       percent,
-      mbPerSec: p.mbPerSec ?? 0,
-      etaSec: p.etaSec ?? 0,
-      status: p.status ?? 'downloading',
+      mbPerSec: finiteNumber(p.mbPerSec) ? (p.mbPerSec as number) : 0,
+      etaSec: finiteNonNegative(p.etaSec) ? (p.etaSec as number) : 0,
+      status: isLoadStatus(p.status) ? p.status : 'downloading',
     };
   }
   if (typeof c['progress'] === 'number') {
+    if (!Number.isFinite(c['progress'])) return null;
     const frac = Math.min(1, Math.max(0, c['progress'] as number));
     const total = Math.round(sizeMB * 1024 * 1024);
     return {
@@ -247,6 +252,20 @@ export function normalizeWorkerProgress(
     };
   }
   return null;
+}
+
+function finiteNumber(v: unknown): boolean {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function finiteNonNegative(v: unknown): boolean {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
+function isLoadStatus(v: unknown): v is LoadProgress['status'] {
+  return (
+    v === 'downloading' || v === 'cached' || v === 'loading' || v === 'ready' || v === 'error'
+  );
 }
 
 /** Worker token chunk → szöveg-delta. Ismeretlen alakra üres sztring. */

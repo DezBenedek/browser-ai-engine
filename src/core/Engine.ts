@@ -36,7 +36,8 @@ import {
 } from './WorkerManager.js';
 import { importWebLLM } from './loader.js';
 import { AudioModule } from '../modules/AudioModule.js';
-import type { TranscribeOptions, SynthesizeOptions } from '../modules/AudioModule.js';
+import type { TranscribeOptions, SynthesizeOptions, WhisperModelId } from '../modules/AudioModule.js';
+import { isWhisperModelId } from '../modules/AudioModule.js';
 import { PipelineModule } from '../modules/PipelineModule.js';
 import type { ModelCategory, ModelTask } from './types.js';
 
@@ -70,6 +71,38 @@ type EventListener = (payload?: unknown) => void;
 /** Modell metaadat gyorsítótár-státusszal (lásd `listModelsDetailed`). */
 export interface ModelWithCache extends ModelInfo {
   cached: boolean;
+}
+
+/** WebLLM/OpenAI `tools` alak a főszáli és worker-úti chathez egyaránt. */
+export interface WebLLMToolSpec {
+  type: 'function';
+  function: { name: string; description: string; parameters: unknown };
+}
+
+/**
+ * ToolDefinition[] → WebLLM `tools` alak. Egyetlen konverziós pont, hogy a
+ * főszáli és a worker-úti chat azonos formátumot küldjön (a worker
+ * `function.name` alapján oldja fel a tool-neveket).
+ */
+export function toWebLLMTools(tools: ToolDefinition[]): WebLLMToolSpec[] {
+  return tools.map((t) => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+}
+
+/**
+ * Repohatár-érzékeny URL-illesztés a gyorsítótár-kereséshez: az `owner/repo`
+ * után `/`-nek (vagy URL-végnek) kell jönnie, különben prefix-ütközés ad
+ * fals találatot (pl. `whisper-tiny` vs `whisper-tiny.en`).
+ */
+export function matchesRepoPath(url: string, repo: string): boolean {
+  if (repo.length === 0) return false;
+  const i = url.indexOf(repo);
+  if (i < 0) return false;
+  const before = i === 0 ? '/' : url[i - 1];
+  const after = url[i + repo.length];
+  return before === '/' && (after === '/' || after === undefined);
 }
 
 const DEFAULT_CACHE_SCOPE = 'browser-ai-engine-v1';
@@ -202,7 +235,15 @@ export class BrowserAIEngine {
     }
 
     if (info.provider === 'transformers' || info.task !== 'chat') {
-      await this.warmupTransformerModel(info, onProgress);
+      try {
+        await this.warmupTransformerModel(info, onProgress);
+      } catch (err) {
+        // Ua. hibajelzés, mint a WebLLM-ágon: esemény + error-státusz, nem néma elutasítás.
+        const msg = err instanceof Error ? err.message : String(err);
+        this.emit('model-error', { modelId, error: msg });
+        onProgress?.(this.mkProgress(info, 0, 'error'));
+        throw err instanceof Error ? err : new Error(msg);
+      }
       this.currentModelId = modelId;
       this.useWorker = false;
       this.emitReady(modelId, onProgress);
@@ -318,10 +359,7 @@ export class BrowserAIEngine {
       top_p: options.topP ?? this.options.modelDefaults?.topP,
     };
     if (tools.length > 0) {
-      body['tools'] = tools.map((t) => ({
-        type: 'function',
-        function: { name: t.name, description: t.description, parameters: t.parameters },
-      }));
+      body['tools'] = toWebLLMTools(tools);
       if (options.tool_choice && options.tool_choice !== 'none') {
         body['tool_choice'] = options.tool_choice === 'auto' ? 'auto' : options.tool_choice;
       }
@@ -592,7 +630,7 @@ export class BrowserAIEngine {
       for (const name of names) {
         const cache = await caches.open(name);
         const keys = await cache.keys();
-        if (keys.some((r) => needles.some((n) => r.url.includes(n as string)))) return true;
+        if (keys.some((r) => needles.some((n) => matchesRepoPath(r.url, n)))) return true;
       }
     } catch {
       // Tár-olvasási hiba: nem blokkol, nincs cache-találat.
@@ -651,7 +689,8 @@ export class BrowserAIEngine {
         totalBytes: total > 0 ? total : expected,
         percent,
         mbPerSec: Math.round(mbPerSec * 10) / 10,
-        etaSec: mbPerSec > 0 ? Math.round((expected - loaded) / 1024 / 1024 / mbPerSec) : 0,
+        // Túltöltésnél (becsült sizeMB < tényleges) nincs negatív ETA.
+        etaSec: mbPerSec > 0 ? Math.max(0, Math.round((expected - loaded) / 1024 / 1024 / mbPerSec)) : 0,
         status: 'downloading',
       });
     });
@@ -673,7 +712,8 @@ export class BrowserAIEngine {
   private serializeChatOptions(options: ChatOptions): Record<string, unknown> {
     return {
       messages: options.messages,
-      tools: options.tools ?? [],
+      // OpenAI-alakban: a worker `function.name` alapján old fel + továbbít a WebLLM-nek.
+      tools: toWebLLMTools(options.tools ?? []),
       tool_choice: options.tool_choice ?? 'auto',
       maxTokens: options.maxTokens ?? this.options.modelDefaults?.maxTokens,
       temperature: options.temperature ?? this.options.modelDefaults?.temperature,
@@ -767,7 +807,8 @@ export class BrowserAIEngine {
         | undefined;
       if (typeof Ctor !== 'function') return;
       const rawPos = this.options.ui?.position ?? 'bottom-right';
-      const position = rawPos === 'top-right' || rawPos === 'top-left' ? 'bottom-right' : rawPos;
+      // A widget csak lenti pozíciókat ismer: oldal tartó leképezés.
+      const position = rawPos === 'top-right' ? 'bottom-right' : rawPos === 'top-left' ? 'bottom-left' : rawPos;
       const theme = this.options.ui?.theme === 'auto' ? 'light' : (this.options.ui?.theme ?? 'light');
       const instance = new Ctor({
         position,
@@ -800,17 +841,30 @@ export class BrowserAIEngine {
   /**
    * Hangmodul (Whisper STT / SpeechT5 TTS). Lusta példány, csak
    * böngészőben használható. Példa: `await ai.audio.transcribe(blob)`.
+   * Az Engine cache-beállítása továbbadódik (különben `enabled: false`
+   * sem tiltaná az STT/TTS súlyok perzisztens tárolását).
    */
   get audio(): AudioModule {
-    if (!this._audio) this._audio = new AudioModule({});
+    if (!this._audio) this._audio = new AudioModule({ cache: this.options.cache });
     return this._audio;
   }
 
   private _audio: AudioModule | null = null;
 
-  /** Kényelmi STT: `await engine.transcribe(blob)`. */
+  /**
+   * Kényelmi STT: `await engine.transcribe(blob)`. Explicit `opts.model`
+   * hiányában az aktív STT-modell (pl. playground STT-választó) dönt,
+   * nem mindig a whisper-tiny.
+   */
   async transcribe(blob: Blob, opts?: TranscribeOptions): Promise<string> {
-    return this.audio.transcribe(blob, opts);
+    const model = opts?.model ?? this.activeWhisperModel() ?? 'whisper-tiny';
+    return this.audio.transcribe(blob, { ...opts, model });
+  }
+
+  /** Aktív modell, ha az Whisper STT-változat (lásd AudioModule). */
+  private activeWhisperModel(): WhisperModelId | null {
+    const id = this.currentModelId;
+    return id !== null && isWhisperModelId(id) ? id : null;
   }
 
   /** Kényelmi TTS: szintézis + lejátszás. */

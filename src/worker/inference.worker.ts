@@ -20,6 +20,8 @@ export interface WorkerRequest<P = unknown> {
 export interface WorkerResponse<D = unknown> {
   id: string | number;
   type: WorkerResponseType;
+  /** `true` chunk/result-nál, `false` error-nál (az Engine is ezt várja). */
+  ok?: boolean;
   data?: D;
   error?: string;
 }
@@ -37,6 +39,8 @@ export interface LoadPayload {
 
 export interface ChatPayload {
   messages: ChatMessage[];
+  /** Az Engine aktív modellje; csak visszaeső `modelId`-ként használt. */
+  modelId?: string;
   temperature?: number;
   maxTokens?: number;
   topP?: number;
@@ -46,6 +50,23 @@ export interface ChatPayload {
   }>;
   tool_choice?: unknown;
   responseFormat?: { type: string };
+}
+
+/**
+ * Tool-név kinyerése OpenAI- (`{function:{name}}`) vagy nyers
+ * ToolDefinition-alakból (`{name}`). Régi/új Engine-kliensekkel egyaránt
+ * kompatibilis; ismeretlen alakra null.
+ */
+export function workerToolName(t: unknown): string | null {
+  if (!t || typeof t !== "object") return null;
+  const r = t as Record<string, unknown>;
+  const fn = r["function"];
+  if (fn && typeof fn === "object") {
+    const n = (fn as Record<string, unknown>)["name"];
+    if (typeof n === "string" && n !== "") return n;
+  }
+  const direct = r["name"];
+  return typeof direct === "string" && direct !== "" ? direct : null;
 }
 
 export type ProgressChunk = { kind: "progress"; progress: number; text: string };
@@ -244,7 +265,7 @@ async function handleChat(id: string | number, payload?: ChatPayload): Promise<v
   // Fallback: nincs natív hívás, de a szöveg JSON-t rejt.
   if (tools.length > 0 && toolCalls.length === 0) {
     const known = new Set(
-      tools.map((t) => t.function?.name).filter((n): n is string => typeof n === "string"),
+      tools.map((t) => workerToolName(t)).filter((n): n is string => n !== null),
     );
     try {
       const parsed = extractJson(text) as { name?: unknown; arguments?: unknown } | null;
@@ -260,7 +281,7 @@ async function handleChat(id: string | number, payload?: ChatPayload): Promise<v
     text,
     toolCalls,
     usage: { promptTokens, completionTokens },
-    modelId: loadedModelId ?? "",
+    modelId: loadedModelId ?? payload?.modelId ?? "",
   };
   reply(id, "result", { data: done });
 }
@@ -286,6 +307,9 @@ if (scope) {
       return; // Korrelálatlan üzenet: nincs kinek válaszolni.
     }
     const { id, type, payload } = msg;
+    // `__`-előtagú best-effort jelzések (pl. `__abort`): nincs függő kérés,
+    // nincs válasz — a hívó már elengedte a kérést.
+    if (typeof type === "string" && type.startsWith("__")) return;
     // Minden üzenet saját try/catch-ben: egy hiba nem döntheti be a workert.
     (async () => {
       switch (type) {

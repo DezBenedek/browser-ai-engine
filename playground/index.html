@@ -3,6 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="browser-ai-engine playground — run LLMs, pipelines, vision and audio models locally in the browser." />
     <title>browser-ai-engine — playground</title>
     <link rel="stylesheet" href="./styles.css" />
     <script type="importmap">
@@ -16,148 +18,152 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <h1>browser-ai-engine <span class="muted">playground</span></h1>
-        <p class="subtitle">
-          Lib: <code id="libSource">…</code> ·
-          GPU: <span id="gpuBadge" class="badge">checking…</span> ·
-          Engine: <span id="engineBadge" class="badge">idle</span>
-        </p>
-      </div>
-      <div class="top-actions">
-        <button id="btnInit" class="primary">Init engine</button>
-        <button id="btnDispose">Dispose</button>
+      <div class="topbar-inner">
+        <div class="brand">
+          <h1>browser-ai-engine <span class="muted">playground</span></h1>
+          <p class="subtitle">
+            Lib: <code id="libSource">…</code> ·
+            GPU: <span id="gpuBadge" class="badge">checking…</span> ·
+            Engine: <span id="engineBadge" class="badge">idle</span>
+          </p>
+        </div>
+        <div class="top-actions">
+          <button id="btnInit" class="primary" type="button">Init engine</button>
+          <button id="btnDispose" type="button">Dispose</button>
+        </div>
       </div>
     </header>
 
-    <section class="card" id="setupCard">
-      <h2>Setup</h2>
-      <div class="grid2">
-        <label><input type="checkbox" id="optWorker" /> Run in Web Worker</label>
-        <label><input type="checkbox" id="optWidget" checked /> Floating widget</label>
-        <label>Widget theme
-          <select id="optTheme">
-            <option value="dark" selected>dark</option>
-            <option value="light">light</option>
-          </select>
-        </label>
-        <label>Widget position
-          <select id="optPosition">
-            <option value="bottom-right" selected>bottom-right</option>
-            <option value="bottom-left">bottom-left</option>
-          </select>
-        </label>
-      </div>
-      <p class="hint">Changing options re-creates the engine. Local dev: <code>npm run build</code>, then serve the repo root and open <code>/playground/</code>.</p>
-    </section>
+    <main class="wrap">
+      <section class="card" id="setupCard" aria-labelledby="setupTitle">
+        <h2 id="setupTitle">Setup</h2>
+        <div class="grid2">
+          <label class="check"><input type="checkbox" id="optWorker" /> Run in Web Worker</label>
+          <label class="check"><input type="checkbox" id="optWidget" checked /> Floating widget</label>
+          <label>Widget theme
+            <select id="optTheme">
+              <option value="dark" selected>dark</option>
+              <option value="light">light</option>
+            </select>
+          </label>
+          <label>Widget position
+            <select id="optPosition">
+              <option value="bottom-right" selected>bottom-right</option>
+              <option value="bottom-left">bottom-left</option>
+            </select>
+          </label>
+        </div>
+        <p class="hint">Changing options re-creates the engine. Local dev: <code>npm run build</code>, then serve the repo root and open <code>/playground/</code>.</p>
+      </section>
 
-    <nav class="tabs" role="tablist">
-      <button data-tab="models" class="active">Models</button>
-      <button data-tab="chat">Chat</button>
-      <button data-tab="pipes">Pipelines</button>
-      <button data-tab="vision">Vision</button>
-      <button data-tab="audio">Audio</button>
-      <button data-tab="system">Cache &amp; memory</button>
-    </nav>
+      <nav class="tabs" role="tablist" aria-label="Playground sections">
+        <button type="button" data-tab="models" class="active" role="tab" aria-selected="true">Models</button>
+        <button type="button" data-tab="chat" role="tab" aria-selected="false">Chat</button>
+        <button type="button" data-tab="pipes" role="tab" aria-selected="false">Pipelines</button>
+        <button type="button" data-tab="vision" role="tab" aria-selected="false">Vision</button>
+        <button type="button" data-tab="audio" role="tab" aria-selected="false">Audio</button>
+        <button type="button" data-tab="system" role="tab" aria-selected="false">Cache &amp; memory</button>
+      </nav>
 
-    <section class="card tabpage active" id="tab-models">
-      <h2>Model catalog <span class="muted" id="modelCount"></span></h2>
-      <div class="progress" id="dlProgressWrap" hidden>
-        <div class="progress-top"><span id="dlLabel">Downloading…</span><span id="dlPct"></span></div>
-        <div class="track"><div class="bar" id="dlBar"></div></div>
-        <div class="muted small" id="dlMeta"></div>
-      </div>
-      <div id="modelGroups"></div>
-    </section>
+      <section class="card tabpage active" id="tab-models" role="tabpanel">
+        <h2>Model catalog <span class="muted" id="modelCount"></span></h2>
+        <div class="progress" id="dlProgressWrap" hidden role="status">
+          <div class="progress-top"><span id="dlLabel">Downloading…</span><span id="dlPct"></span></div>
+          <div class="track"><div class="bar" id="dlBar"></div></div>
+          <div class="muted small" id="dlMeta"></div>
+        </div>
+        <div id="modelGroups"></div>
+      </section>
 
-    <section class="card tabpage" id="tab-chat">
-      <h2>Chat</h2>
-      <div class="chatlog" id="chatLog" aria-live="polite"></div>
-      <div class="row">
-        <input id="chatInput" placeholder="Ask something…" />
-        <button id="btnSend" class="primary">Send</button>
-        <button id="btnClearChat">Clear</button>
-      </div>
-      <label class="row"><input type="checkbox" id="optTools" checked /> Enable demo tools (getWeather, calculator)</label>
-      <details><summary>Tool calls (JSON)</summary><pre id="toolJson" class="out">—</pre></details>
-    </section>
+      <section class="card tabpage" id="tab-chat" role="tabpanel">
+        <h2>Chat</h2>
+        <div class="chatlog" id="chatLog" aria-live="polite" role="log" aria-label="Chat messages"></div>
+        <div class="row chat-row">
+          <input id="chatInput" placeholder="Ask something…" autocomplete="off" aria-label="Chat message" />
+          <button id="btnSend" class="primary" type="button">Send</button>
+          <button id="btnClearChat" type="button">Clear</button>
+        </div>
+        <label class="check"><input type="checkbox" id="optTools" checked /> Enable demo tools (getWeather, calculator)</label>
+        <details><summary>Tool calls (JSON)</summary><pre id="toolJson" class="out">—</pre></details>
+      </section>
 
-    <section class="card tabpage" id="tab-pipes">
-      <h2>Text pipelines</h2>
-      <div class="grid2">
-        <label>Task
-          <select id="pipeTask">
-            <option value="text-classification">sentiment (text-classification)</option>
-            <option value="zero-shot">zero-shot classification</option>
-            <option value="qa">question answering</option>
-            <option value="summarization">summarization</option>
-            <option value="text2text">instruction (text2text)</option>
-            <option value="translation">translation</option>
-            <option value="embedding">embedding + similarity</option>
-            <option value="rerank">rerank</option>
-          </select>
-        </label>
-        <label>Model <select id="pipeModel"></select></label>
-      </div>
-      <div id="pipeInputs"></div>
-      <div class="row"><button id="btnPipeRun" class="primary">Run pipeline</button></div>
-      <pre id="pipeOut" class="out">—</pre>
-    </section>
+      <section class="card tabpage" id="tab-pipes" role="tabpanel">
+        <h2>Text pipelines</h2>
+        <div class="grid2">
+          <label>Task
+            <select id="pipeTask">
+              <option value="text-classification">sentiment (text-classification)</option>
+              <option value="zero-shot">zero-shot classification</option>
+              <option value="qa">question answering</option>
+              <option value="summarization">summarization</option>
+              <option value="text2text">instruction (text2text)</option>
+              <option value="translation">translation</option>
+              <option value="embedding">embedding + similarity</option>
+              <option value="rerank">rerank</option>
+            </select>
+          </label>
+          <label>Model <select id="pipeModel"></select></label>
+        </div>
+        <div id="pipeInputs" class="stack"></div>
+        <div class="row"><button id="btnPipeRun" class="primary" type="button">Run pipeline</button></div>
+        <pre id="pipeOut" class="out">—</pre>
+      </section>
 
-    <section class="card tabpage" id="tab-vision">
-      <h2>Vision &amp; OCR</h2>
-      <div class="grid2">
-        <label>Model <select id="visionModel"></select></label>
-        <label>Image <input type="file" id="visionFile" accept="image/*" /></label>
-      </div>
-      <div class="row"><button id="btnVisionRun" class="primary">Run</button></div>
-      <div class="imgwrap">
-        <canvas id="visionCanvas"></canvas>
-      </div>
-      <pre id="visionOut" class="out">—</pre>
-    </section>
+      <section class="card tabpage" id="tab-vision" role="tabpanel">
+        <h2>Vision &amp; OCR</h2>
+        <div class="grid2">
+          <label>Model <select id="visionModel"></select></label>
+          <label>Image <input type="file" id="visionFile" accept="image/*" /></label>
+        </div>
+        <div class="row"><button id="btnVisionRun" class="primary" type="button">Run</button></div>
+        <div class="imgwrap">
+          <canvas id="visionCanvas"></canvas>
+        </div>
+        <pre id="visionOut" class="out">—</pre>
+      </section>
 
-    <section class="card tabpage" id="tab-audio">
-      <h2>Audio</h2>
-      <div class="grid2">
-        <label>STT model
-          <select id="sttModel">
-            <option value="whisper-tiny">whisper-tiny (multilingual)</option>
-            <option value="whisper-tiny-en">whisper-tiny-en (english)</option>
-            <option value="whisper-base">whisper-base (accurate)</option>
-          </select>
-        </label>
-        <label>Audio file <input type="file" id="audioFile" accept="audio/*" /></label>
-      </div>
-      <div class="row">
-        <button id="btnMic">Record 5s mic</button>
-        <button id="btnTranscribeFile">Transcribe file</button>
-      </div>
-      <pre id="sttOut" class="out">—</pre>
-      <h3>Text to speech</h3>
-      <div class="row">
-        <input id="ttsInput" value="The model runs entirely in your browser." />
-        <button id="btnSpeak">Synthesize + play</button>
-      </div>
-      <audio id="ttsAudio" controls></audio>
-    </section>
+      <section class="card tabpage" id="tab-audio" role="tabpanel">
+        <h2>Audio</h2>
+        <div class="grid2">
+          <label>STT model
+            <select id="sttModel">
+              <option value="whisper-tiny">whisper-tiny (multilingual)</option>
+              <option value="whisper-tiny-en">whisper-tiny-en (english)</option>
+              <option value="whisper-base">whisper-base (accurate)</option>
+            </select>
+          </label>
+          <label>Audio file <input type="file" id="audioFile" accept="audio/*" /></label>
+        </div>
+        <div class="row">
+          <button id="btnMic" type="button">Record 5s mic</button>
+          <button id="btnTranscribeFile" type="button">Transcribe file</button>
+        </div>
+        <pre id="sttOut" class="out">—</pre>
+        <h3>Text to speech</h3>
+        <div class="row">
+          <input id="ttsInput" value="The model runs entirely in your browser." aria-label="Text to synthesize" />
+          <button id="btnSpeak" type="button">Synthesize + play</button>
+        </div>
+        <audio id="ttsAudio" controls></audio>
+      </section>
 
-    <section class="card tabpage" id="tab-system">
-      <h2>Cache &amp; memory</h2>
-      <div class="row">
-        <button id="btnUsage">Refresh</button>
-        <button id="btnPersist">Request persistent storage</button>
-        <button id="btnClearAll" class="danger">Clear all caches</button>
-      </div>
-      <pre id="sysOut" class="out">—</pre>
-    </section>
+      <section class="card tabpage" id="tab-system" role="tabpanel">
+        <h2>Cache &amp; memory</h2>
+        <div class="row">
+          <button id="btnUsage" type="button">Refresh</button>
+          <button id="btnPersist" type="button">Request persistent storage</button>
+          <button id="btnClearAll" class="danger" type="button">Clear all caches</button>
+        </div>
+        <pre id="sysOut" class="out">—</pre>
+      </section>
 
-    <section class="card">
-      <h2>Event log <button id="btnClearLog" class="small">clear</button></h2>
-      <pre id="log" class="out log"></pre>
-    </section>
+      <section class="card" aria-labelledby="logTitle">
+        <h2 id="logTitle">Event log <button id="btnClearLog" class="small" type="button">clear</button></h2>
+        <pre id="log" class="out log" role="log" aria-live="polite"></pre>
+      </section>
 
-    <footer class="muted small">browser-ai-engine playground · loads <code>../dist/index.js</code> after <code>npm run build</code>, esm.sh fallback otherwise.</footer>
+      <footer class="muted small">browser-ai-engine playground · loads <code>../dist/index.js</code> after <code>npm run build</code>, esm.sh fallback otherwise.</footer>
+    </main>
 
     <script type="module" src="./app.js"></script>
   </body>

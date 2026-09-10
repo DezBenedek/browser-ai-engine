@@ -3,7 +3,7 @@
 // SSR-safe: Engine példányosítás csak kliensen, eseménykezelőben/effektben;
 // szerveren a hook az alapállapotot adja, a műveletek hibával térnek vissza.
 // Feltételezett Engine API (lásd src/core/Engine.ts):
-//   loadModel(id, { onProgress? }) / chat(messages, { onToken?, signal?, ... })
+//   loadModel(id, onProgress?) / chat({ messages, onChunk?, signal?, ... }) → ChatResult
 //   / unload() / dispose(). Eltérés esetén ezt a fájlt kell igazítani.
 
 import { useCallback, useEffect, useRef, useState } from "react";

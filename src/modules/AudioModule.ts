@@ -20,6 +20,27 @@ const WHISPER_MODEL_IDS: Record<WhisperModelId, string> = {
   'whisper-base': 'Xenova/whisper-base',
 };
 
+/** Whisper-kulcs ellenőrzése futásidőben (JS-hívók tetszőleges sztringet adhatnak). */
+export function isWhisperModelId(id: string): id is WhisperModelId {
+  return Object.prototype.hasOwnProperty.call(WHISPER_MODEL_IDS, id);
+}
+
+/**
+ * Whisper-kulcs → HF repo. Ismeretlen kulcsra dob a választható listával,
+ * a későbbi homályos pipeline-hiba helyett.
+ */
+export function resolveWhisperRepo(model?: string): string {
+  const key = model ?? 'whisper-tiny';
+  const repo = (WHISPER_MODEL_IDS as Record<string, string>)[key];
+  if (!repo) {
+    throw new Error(
+      `AudioModule.transcribe: ismeretlen Whisper-modell "${key}". ` +
+        `Választható: ${Object.keys(WHISPER_MODEL_IDS).join(', ')}.`,
+    );
+  }
+  return repo;
+}
+
 const TTS_MODEL_ID = 'Xenova/speecht5_tts';
 /** Alapértelmezett beszélő-embedding a transformers.js dokumentációból. */
 const DEFAULT_SPEAKER_EMBEDDINGS_URL =
@@ -137,7 +158,10 @@ export class AudioModule {
     assertBrowser('pipeline');
     const key = `${task}::${model}`;
     const cached = this.pipelines.get(key);
-    if (cached !== undefined && this.useCache) return cached;
+    // Memóriabeli újrafelhasználás cache-kapcsolótól függetlenül: nem ír
+    // perzisztens tárba, csak a hálózati újratöltést kerüli el. A `useCache`
+    // kizárólag az `env.useBrowserCache` flaget vezérli (lásd loadTransformers).
+    if (cached !== undefined) return cached;
     const pending: Promise<any> = this.loadTransformers().then((mod) =>
       mod.pipeline(task, model, {
         quantized: false, // TTS-nél a kvantált súly pontatlanabb; STT-re ártalmatlan.
@@ -206,7 +230,7 @@ export class AudioModule {
       throw new Error('AudioModule.transcribe: üres vagy érvénytelen Blob.');
     }
     const audio = await this.decodeTo16kMono(blob);
-    const modelId = WHISPER_MODEL_IDS[opts.model ?? 'whisper-tiny'];
+    const modelId = resolveWhisperRepo(opts.model);
     const transcriber: any = await this.loadPipeline(
       'automatic-speech-recognition',
       modelId,
